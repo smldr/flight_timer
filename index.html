@@ -62,18 +62,28 @@
 
     #top-left {
       position: absolute; top: 3vh; left: 3vw;
-      color: rgba(186,194,222,0.80); /* Subtext1 */
+      color: #cdd6f4; /* Text */
       font-size: clamp(1rem, 2vw, 1.6rem);
       letter-spacing: 0.08em;
-      text-shadow: 0 1px 4px rgba(17,17,27,0.95), 0 2px 12px rgba(17,17,27,0.75);
+      text-shadow:
+        0 1px 3px rgba(17,17,27,1.00),
+        0 2px 8px rgba(17,17,27,0.98),
+        0 4px 20px rgba(17,17,27,0.90),
+        0 6px 40px rgba(17,17,27,0.80),
+        0 8px 70px rgba(17,17,27,0.65);
     }
 
     #top-right {
       position: absolute; top: 3vh; right: 3vw;
-      color: rgba(186,194,222,0.80); /* Subtext1 */
+      color: #cdd6f4; /* Text */
       font-size: clamp(1rem, 2vw, 1.6rem);
       letter-spacing: 0.08em;
-      text-shadow: 0 1px 4px rgba(17,17,27,0.95), 0 2px 12px rgba(17,17,27,0.75);
+      text-shadow:
+        0 1px 3px rgba(17,17,27,1.00),
+        0 2px 8px rgba(17,17,27,0.98),
+        0 4px 20px rgba(17,17,27,0.90),
+        0 6px 40px rgba(17,17,27,0.80),
+        0 8px 70px rgba(17,17,27,0.65);
     }
 
     #timer-block {
@@ -129,6 +139,50 @@
       background: linear-gradient(90deg, #89b4fa, #74c7ec); /* Blue → Sapphire */
       border-radius: 3px;
       box-shadow: 0 0 14px rgba(137,180,250,0.50), 0 0 4px rgba(116,199,236,0.60);
+    }
+
+    /* ── Time-adjust buttons ── */
+    #adj-sub, #adj-add {
+      position: absolute;
+      bottom: 8.5vh;
+      display: flex;
+      gap: 0.5em;
+      pointer-events: all;
+    }
+    #adj-sub { left: 3vw; }
+    #adj-add { right: 3vw; }
+
+    .adj-btn {
+      background: rgba(30,30,46,0.55); /* Base */
+      border-radius: 20px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: clamp(0.65rem, 1.15vw, 0.90rem);
+      letter-spacing: 0.10em;
+      padding: 0.40em 1.0em;
+      transition: all 0.15s;
+      opacity: 0.45;
+    }
+    .adj-btn:hover { opacity: 1; }
+
+    .adj-btn.sub {
+      border: 1px solid rgba(243,139,168,0.35); /* Red */
+      color: rgba(243,139,168,0.85);
+    }
+    .adj-btn.sub:hover {
+      background: rgba(243,139,168,0.12);
+      border-color: rgba(243,139,168,0.70);
+      color: #f38ba8;
+    }
+
+    .adj-btn.add {
+      border: 1px solid rgba(166,227,161,0.35); /* Green */
+      color: rgba(166,227,161,0.85);
+    }
+    .adj-btn.add:hover {
+      background: rgba(166,227,161,0.12);
+      border-color: rgba(166,227,161,0.70);
+      color: #a6e3a1;
     }
 
     /* ── Landed overlay ── */
@@ -380,6 +434,14 @@
   </div>
   <div id="progress-track">
     <div id="progress-fill"></div>
+  </div>
+  <div id="adj-sub">
+    <button class="adj-btn sub" data-delta="-600">−10m</button>
+    <button class="adj-btn sub" data-delta="-300">−5m</button>
+  </div>
+  <div id="adj-add">
+    <button class="adj-btn add" data-delta="300">+5m</button>
+    <button class="adj-btn add" data-delta="600">+10m</button>
   </div>
 </div>
 
@@ -706,11 +768,9 @@ function startTimer() {
   startMs = Date.now();
   running = true;
 
-  const endDate = new Date(startMs + totalSecs*1000);
-  document.getElementById('top-left').textContent   = `Landing · ${fmtClock(endDate)}`;
-  document.getElementById('top-right').textContent  = fmtClock(new Date());
-  document.getElementById('ends-label').textContent = `ends at ${fmtClock(endDate)}`;
-  document.getElementById('remaining').textContent  = fmtDuration(totalSecs);
+  updateEndLabels();
+  document.getElementById('top-right').textContent = fmtClock(new Date());
+  document.getElementById('remaining').textContent = fmtDuration(totalSecs);
 
   document.getElementById('setup').style.display          = 'none';
   document.getElementById('hud').style.display            = 'block';
@@ -721,6 +781,20 @@ function startTimer() {
   applySky(0);
 
   tickId = setInterval(tick, 500);
+}
+
+function updateEndLabels() {
+  const endDate = new Date(startMs + totalSecs * 1000);
+  document.getElementById('top-left').textContent   = `Landing · ${fmtClock(endDate)}`;
+  document.getElementById('ends-label').textContent = `ends at ${fmtClock(endDate)}`;
+}
+
+function adjustTime(deltaSecs) {
+  if (!running) return;
+  const minRemaining = 10;
+  totalSecs = Math.max(Math.round(elapsed()) + minRemaining, totalSecs + deltaSecs);
+  updateEndLabels();
+  tick();
 }
 
 function resetTimer() {
@@ -740,10 +814,16 @@ function resetTimer() {
 document.getElementById('begin-btn').addEventListener('click', startTimer);
 document.getElementById('fin-reset-btn').addEventListener('click', resetTimer);
 
-// Escape resets mid-flight; Enter starts from setup screen
+document.querySelectorAll('.adj-btn').forEach(btn =>
+  btn.addEventListener('click', () => adjustTime(parseInt(btn.dataset.delta)))
+);
+
+// Escape resets mid-flight; [ / ] adjust time by ±5m during flight
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && running) resetTimer();
   if (e.key === 'Escape' && !running && document.getElementById('landed-overlay').style.display === 'flex') resetTimer();
+  if (e.key === '[') adjustTime(-300);
+  if (e.key === ']') adjustTime(300);
 });
 
 document.querySelectorAll('.pr-btn').forEach(btn =>
