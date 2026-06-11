@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>✈ Flight Timer</title>
+  <style>
+    /*
+      Catppuccin Mocha palette
+      Crust #11111b · Mantle #181825 · Base #1e1e2e
+      Surface0 #313244 · Surface1 #45475a · Surface2 #585b70
+      Overlay0 #6c7086 · Overlay1 #7f849c · Overlay2 #9399b2
+      Subtext0 #a6adc8 · Subtext1 #bac2de · Text #cdd6f4
+      Lavender #b4befe · Blue #89b4fa · Sapphire #74c7ec · Sky #89dceb
+      Teal #94e2d5 · Green #a6e3a1 · Yellow #f9e2af · Peach #fab387
+      Maroon #eba0ac · Red #f38ba8 · Mauve #cba6f7 · Pink #f5c2e7
+      Flamingo #f2cdcd · Rosewater #f5e0dc
+    */
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #11111b; /* Crust */
+      font-family: 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+    }
+
+    /* ── Sky ── */
+    #sky { position: fixed; inset: 0; }
+
+    /* ── Stars ── */
+    #stars { position: fixed; inset: 0; pointer-events: none; z-index: 1; }
+
+    /* ── Clouds ── */
+    #clouds { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+
+    /* ── Arc guide ── */
+    #arc-svg {
+      position: fixed; inset: 0; width: 100%; height: 100%;
+      pointer-events: none; z-index: 3;
+    }
+
+    /* ── Terrain ── */
+    #terrain {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      height: 14vh; z-index: 4; pointer-events: none;
+    }
+
+    /* ── Plane ── */
+    #plane-wrap {
+      position: fixed; pointer-events: none; z-index: 10;
+      transform-origin: 50% 50%;
+      filter: drop-shadow(0 4px 18px rgba(180,190,254,0.40)); /* Lavender glow */
+    }
+
+    /* ── HUD ── */
+    #hud {
+      position: fixed; inset: 0; z-index: 20;
+      pointer-events: none; display: none;
+    }
+
+    #top-left {
+      position: absolute; top: 3vh; left: 3vw;
+      color: rgba(186,194,222,0.80); /* Subtext1 */
+      font-size: clamp(1rem, 2vw, 1.6rem);
+      letter-spacing: 0.08em;
+      text-shadow: 0 1px 4px rgba(17,17,27,0.95), 0 2px 12px rgba(17,17,27,0.75);
+    }
+
+    #top-right {
+      position: absolute; top: 3vh; right: 3vw;
+      color: rgba(186,194,222,0.80); /* Subtext1 */
+      font-size: clamp(1rem, 2vw, 1.6rem);
+      letter-spacing: 0.08em;
+      text-shadow: 0 1px 4px rgba(17,17,27,0.95), 0 2px 12px rgba(17,17,27,0.75);
+    }
+
+    #timer-block {
+      position: absolute;
+      bottom: 11vh; left: 0; right: 0;
+      text-align: center;
+      /* Subtle dark vignette behind text — ensures legibility on bright midday sky */
+      background: radial-gradient(ellipse 55% 80% at 50% 60%, rgba(17,17,27,0.45) 0%, transparent 100%);
+    }
+
+    #remaining {
+      font-size: clamp(5rem, 15vw, 13rem);
+      color: #cdd6f4; /* Text */
+      letter-spacing: 0.03em;
+      text-shadow:
+        0 2px 3px rgba(17,17,27,1.00),
+        0 4px 12px rgba(17,17,27,1.00),
+        0 6px 30px rgba(17,17,27,0.95),
+        0 8px 60px rgba(17,17,27,0.85),
+        0 10px 100px rgba(17,17,27,0.70),
+        0 0 80px rgba(137,180,250,0.25);
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+
+    #remaining-label {
+      margin-top: 0.35em;
+      font-size: clamp(0.85rem, 1.8vw, 1.5rem);
+      color: rgba(166,173,200,0.80); /* Subtext0 — brighter for legibility */
+      letter-spacing: 0.40em;
+      text-transform: uppercase;
+      text-shadow: 0 1px 4px rgba(17,17,27,0.90), 0 2px 12px rgba(17,17,27,0.70);
+    }
+
+    #ends-label {
+      margin-top: 0.6em;
+      font-size: clamp(0.8rem, 1.6vw, 1.3rem);
+      color: rgba(186,194,222,0.70); /* Subtext1 */
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      text-shadow: 0 1px 4px rgba(17,17,27,0.90), 0 2px 10px rgba(17,17,27,0.70);
+    }
+
+    #progress-track {
+      position: absolute; bottom: 7vh; left: 8vw; right: 8vw;
+      height: 5px;
+      background: rgba(49,50,68,0.60); /* Surface0 */
+      border-radius: 3px;
+    }
+
+    #progress-fill {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, #89b4fa, #74c7ec); /* Blue → Sapphire */
+      border-radius: 3px;
+      box-shadow: 0 0 14px rgba(137,180,250,0.50), 0 0 4px rgba(116,199,236,0.60);
+    }
+
+    /* ── Landed overlay ── */
+    #landed-overlay {
+      position: fixed; inset: 0; z-index: 40;
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: rgba(17,17,27,0.55); /* Crust */
+      backdrop-filter: blur(6px);
+    }
+
+    .fin-title {
+      font-size: clamp(4rem, 13vw, 11rem);
+      color: #f9e2af; /* Yellow */
+      letter-spacing: 0.08em;
+      text-shadow:
+        0 0 80px rgba(249,226,175,0.50),
+        0 0 28px rgba(250,179,135,0.40), /* Peach */
+        0 4px 10px rgba(17,17,27,0.65);
+      animation: glowpulse 2.2s ease-in-out infinite;
+    }
+
+    .fin-sub {
+      font-size: clamp(1.4rem, 3.5vw, 3.2rem);
+      color: rgba(205,214,244,0.82); /* Text */
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      margin-top: 0.45em;
+      text-shadow: 0 0 24px rgba(137,180,250,0.30);
+    }
+
+    @keyframes glowpulse {
+      0%, 100% { opacity: 1; }
+      50% {
+        opacity: 0.88;
+        text-shadow:
+          0 0 110px rgba(249,226,175,0.65),
+          0 0 38px rgba(250,179,135,0.55);
+      }
+    }
+
+    .fin-new-btn {
+      margin-top: 2em;
+      background: rgba(49,50,68,0.70); /* Surface0 */
+      border: 1.5px solid rgba(137,180,250,0.35); /* Blue */
+      color: rgba(186,194,222,0.85); /* Subtext1 */
+      font-size: clamp(0.85rem, 1.7vw, 1.4rem);
+      padding: 0.55em 2em;
+      border-radius: 100px; cursor: pointer;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      font-family: inherit;
+      transition: all 0.20s;
+    }
+    .fin-new-btn:hover {
+      background: rgba(69,71,90,0.80); /* Surface1 */
+      border-color: rgba(137,180,250,0.65);
+      color: #cdd6f4; /* Text */
+      box-shadow: 0 0 22px rgba(137,180,250,0.20);
+    }
+
+    /* reset-btn removed — use Esc key mid-flight, or the overlay button at Time's Up */
+
+    /* ── Setup screen ── */
+    #setup {
+      position: fixed; inset: 0; z-index: 50;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: rgba(17,17,27,0.90); /* Crust */
+      backdrop-filter: blur(14px);
+    }
+
+    .setup-logo {
+      font-size: clamp(2.4rem, 6vw, 5rem);
+      color: #cdd6f4; /* Text */
+      letter-spacing: 0.13em;
+      text-shadow:
+        0 0 50px rgba(137,180,250,0.40), /* Blue */
+        0 0 14px rgba(180,190,254,0.22); /* Lavender */
+      margin-bottom: 0.15em;
+    }
+
+    .setup-sub {
+      color: rgba(166,173,200,0.60); /* Subtext0 */
+      font-size: clamp(0.8rem, 1.6vw, 1.3rem);
+      letter-spacing: 0.28em; text-transform: uppercase;
+      margin-bottom: 2.4em;
+    }
+
+    .dur-inputs {
+      display: flex; align-items: flex-end; gap: 0.45em;
+      margin-bottom: 1.4em;
+    }
+
+    .inp-grp {
+      display: flex; flex-direction: column; align-items: center; gap: 0.4em;
+    }
+
+    .inp-grp label {
+      font-size: clamp(0.65rem, 1.1vw, 0.9rem);
+      color: rgba(166,173,200,0.70); /* Subtext0 */
+      text-transform: uppercase; letter-spacing: 0.18em;
+    }
+
+    .inp-grp input {
+      width: 4.2em;
+      font-size: clamp(2.2rem, 5.5vw, 4.2rem);
+      text-align: center;
+      background: rgba(49,50,68,0.60); /* Surface0 */
+      border: 1.5px solid rgba(108,112,134,0.40); /* Overlay0 */
+      border-radius: 14px;
+      color: #cdd6f4; /* Text */
+      padding: 0.22em 0.15em;
+      outline: none;
+      font-family: inherit;
+      font-variant-numeric: tabular-nums;
+      -moz-appearance: textfield;
+      appearance: textfield;
+      transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+    }
+    .inp-grp input::-webkit-inner-spin-button,
+    .inp-grp input::-webkit-outer-spin-button { -webkit-appearance: none; }
+    .inp-grp input:focus {
+      border-color: rgba(137,180,250,0.65); /* Blue */
+      background: rgba(69,71,90,0.65); /* Surface1 */
+      box-shadow: 0 0 22px rgba(137,180,250,0.16);
+    }
+
+    .colon {
+      font-size: clamp(2.2rem, 5.5vw, 4.2rem);
+      color: rgba(108,112,134,0.55); /* Overlay0 */
+      padding-bottom: 0.32em; user-select: none;
+    }
+
+    .presets {
+      display: flex; flex-wrap: wrap; gap: 0.65em;
+      justify-content: center; margin-bottom: 2.4em;
+      max-width: 600px;
+    }
+
+    .pr-btn {
+      background: rgba(49,50,68,0.55); /* Surface0 */
+      border: 1px solid rgba(108,112,134,0.30); /* Overlay0 */
+      color: rgba(166,173,200,0.70); /* Subtext0 */
+      font-size: clamp(0.72rem, 1.25vw, 0.98rem);
+      padding: 0.38em 1.05em;
+      border-radius: 20px; cursor: pointer;
+      letter-spacing: 0.10em; font-family: inherit;
+      transition: all 0.15s;
+    }
+    .pr-btn:hover {
+      background: rgba(69,71,90,0.70); /* Surface1 */
+      border-color: rgba(137,180,250,0.45); /* Blue */
+      color: #cdd6f4; /* Text */
+    }
+
+    #begin-btn {
+      background: linear-gradient(140deg, #89b4fa 0%, #74c7ec 100%); /* Blue → Sapphire */
+      border: none;
+      color: #1e1e2e; /* Base — dark text on light button */
+      font-size: clamp(1.05rem, 2.2vw, 1.75rem);
+      padding: 0.65em 2.8em;
+      border-radius: 100px; cursor: pointer;
+      letter-spacing: 0.20em; text-transform: uppercase;
+      font-family: inherit;
+      box-shadow: 0 0 35px rgba(137,180,250,0.25);
+      transition: all 0.20s;
+      font-weight: 600;
+    }
+    #begin-btn:hover {
+      background: linear-gradient(140deg, #b4befe 0%, #89dceb 100%); /* Lavender → Sky */
+      box-shadow: 0 0 50px rgba(180,190,254,0.40);
+      transform: translateY(-2px);
+    }
+    #begin-btn:active { transform: translateY(0); }
+  </style>
+</head>
+<body>
+
+<!-- Sky -->
+<div id="sky"></div>
+
+<!-- Stars -->
+<canvas id="stars"></canvas>
+
+<!-- Clouds -->
+<div id="clouds"></div>
+
+<!-- Arc guide -->
+<svg id="arc-svg" xmlns="http://www.w3.org/2000/svg">
+  <!-- Lavender dashed guide -->
+  <path id="arc-dash"  fill="none" stroke="rgba(180,190,254,0.14)"
+        stroke-width="2.5" stroke-dasharray="14 11" stroke-linecap="round"/>
+  <!-- Blue trail (flown portion) -->
+  <path id="arc-trail" fill="none" stroke="rgba(137,180,250,0.32)"
+        stroke-width="3.5" stroke-linecap="round"/>
+</svg>
+
+<!-- Terrain silhouette -->
+<svg id="terrain" xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 1000 140" preserveAspectRatio="none"
+     width="100%" height="100%">
+  <path d="M0,70 C60,58 120,68 200,60 C280,52 340,72 420,62 C500,52 560,70 640,60
+           C720,50 790,66 870,58 C920,54 960,62 1000,58 L1000,140 L0,140 Z"
+        fill="#12130f" opacity="0.94"/>
+  <path d="M0,90 C80,82 160,88 250,82 C340,76 430,90 520,84
+           C610,78 700,90 800,84 C880,80 940,86 1000,82 L1000,140 L0,140 Z"
+        fill="#0b0c09" opacity="0.97"/>
+</svg>
+
+<!-- Plane — Catppuccin Text/Lavender/Blue palette -->
+<div id="plane-wrap">
+  <svg id="plane-svg" xmlns="http://www.w3.org/2000/svg"
+       viewBox="0 0 220 100" width="110" height="50">
+    <!-- Fuselage: Text #cdd6f4 -->
+    <ellipse cx="118" cy="50" rx="96" ry="15" fill="#cdd6f4"/>
+    <!-- Nose -->
+    <path d="M 213,50 Q 222,47 222,50 Q 222,53 213,50 Z" fill="#cdd6f4"/>
+    <!-- Main wing: Lavender #b4befe -->
+    <path d="M 82,50 L 36,12 L 142,50 Z" fill="#b4befe"/>
+    <!-- Wing underside: slightly dimmer -->
+    <path d="M 82,53 L 36,14 L 142,53 Z" fill="rgba(180,190,254,0.42)"/>
+    <!-- Engine nacelle: Surface1/Surface2 -->
+    <ellipse cx="95" cy="63" rx="24" ry="7" fill="#585b70"/>
+    <ellipse cx="80" cy="63" rx="8"  ry="7" fill="#45475a"/>
+    <!-- Horizontal stabiliser: Lavender -->
+    <path d="M 27,50 L 8,29 L 58,50 Z"  fill="#b4befe"/>
+    <!-- Vertical fin: Lavender -->
+    <path d="M 30,47 L 24,20 L 52,47 Z" fill="#b4befe"/>
+    <!-- Cabin windows: Sapphire #74c7ec -->
+    <circle cx="133" cy="45" r="5" fill="rgba(116,199,236,0.75)"/>
+    <circle cx="149" cy="45" r="5" fill="rgba(116,199,236,0.75)"/>
+    <circle cx="165" cy="45" r="5" fill="rgba(116,199,236,0.75)"/>
+    <circle cx="181" cy="45" r="5" fill="rgba(116,199,236,0.75)"/>
+    <!-- Cockpit windshield: Sky #89dceb -->
+    <path d="M 205,46 L 196,38 L 213,41 Z" fill="rgba(137,220,235,0.80)"/>
+    <!-- Accent stripe: Blue #89b4fa -->
+    <line x1="28" y1="49" x2="213" y2="49" stroke="rgba(137,180,250,0.35)" stroke-width="2.5"/>
+  </svg>
+</div>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="top-left"></div>
+  <div id="top-right"></div>
+  <div id="timer-block">
+    <div id="remaining">0:00</div>
+    <div id="remaining-label">time remaining</div>
+    <div id="ends-label"></div>
+  </div>
+  <div id="progress-track">
+    <div id="progress-fill"></div>
+  </div>
+</div>
+
+<!-- Landed overlay -->
+<div id="landed-overlay">
+  <div class="fin-title">Time's Up</div>
+  <div class="fin-sub">Pens Down</div>
+  <button class="fin-new-btn" id="fin-reset-btn">↩ New Flight</button>
+</div>
+
+<!-- Setup screen -->
+<div id="setup">
+  <div class="setup-logo">✈ Flight Timer</div>
+  <div class="setup-sub">Set your flight duration</div>
+
+  <div class="dur-inputs">
+    <div class="inp-grp">
+      <label>hr</label>
+      <input type="number" id="inp-h" min="0" max="9" value="0">
+    </div>
+    <div class="colon">:</div>
+    <div class="inp-grp">
+      <label>min</label>
+      <input type="number" id="inp-m" min="0" max="59" value="30">
+    </div>
+    <div class="colon">:</div>
+    <div class="inp-grp">
+      <label>sec</label>
+      <input type="number" id="inp-s" min="0" max="59" value="0">
+    </div>
+  </div>
+
+  <div class="presets">
+    <button class="pr-btn" data-h="0" data-m="10" data-s="0">10 min</button>
+    <button class="pr-btn" data-h="0" data-m="15" data-s="0">15 min</button>
+    <button class="pr-btn" data-h="0" data-m="20" data-s="0">20 min</button>
+    <button class="pr-btn" data-h="0" data-m="30" data-s="0">30 min</button>
+    <button class="pr-btn" data-h="0" data-m="45" data-s="0">45 min</button>
+    <button class="pr-btn" data-h="1" data-m="0"  data-s="0">1 hr</button>
+    <button class="pr-btn" data-h="1" data-m="30" data-s="0">1.5 hr</button>
+    <button class="pr-btn" data-h="2" data-m="0"  data-s="0">2 hr</button>
+    <button class="pr-btn" data-h="3" data-m="0"  data-s="0">3 hr</button>
+  </div>
+
+  <button id="begin-btn">Begin Flight</button>
+</div>
+
+<script>
+// ══════════════════════════════════════
+// STARS
+// ══════════════════════════════════════
+const starCanvas = document.getElementById('stars');
+const sCtx = starCanvas.getContext('2d');
+let stars = [];
+
+function initStars() {
+  starCanvas.width  = window.innerWidth;
+  starCanvas.height = window.innerHeight;
+  stars = Array.from({ length: 240 }, () => ({
+    x: Math.random() * starCanvas.width,
+    y: Math.random() * starCanvas.height * 0.68,
+    r: Math.random() * 1.5 + 0.25,
+    base: Math.random() * 0.70 + 0.18,
+    phase: Math.random() * Math.PI * 2,
+    spd: Math.random() * 0.022 + 0.006,
+  }));
+}
+
+function drawStars(alpha) {
+  sCtx.clearRect(0, 0, starCanvas.width, starCanvas.height);
+  if (alpha < 0.01) return;
+  stars.forEach(s => {
+    s.phase += s.spd;
+    const tw = 0.72 + 0.28 * Math.sin(s.phase);
+    // Catppuccin stars: mostly Text (#cdd6f4) with occasional Lavender (#b4befe) tint
+    const lavender = s.base > 0.75;
+    const [r,g,b] = lavender ? [180,190,254] : [205,214,244];
+    sCtx.beginPath();
+    sCtx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    sCtx.fillStyle = `rgba(${r},${g},${b},${(s.base * tw * alpha).toFixed(3)})`;
+    sCtx.fill();
+  });
+}
+
+// ══════════════════════════════════════
+// SKY GRADIENT  — Catppuccin Mocha
+// ══════════════════════════════════════
+// Setup/idle: pure night (separate function below)
+// Timer progress 0→1: pre-dawn sunrise → midday → sunset → darkness
+// The plane arc mirrors the sun's daily journey: take off at dawn, peak at noon, land at dusk
+//
+// [progress, topColor, midColor, horizonColor, starAlpha]
+const SKY = [
+  [0.00, '#11111b', '#1e1e2e', '#313244', 0.92],  // pre-dawn: still dark, subtle horizon glow
+  [0.08, '#1e1e2e', '#313244', '#fab387', 0.65],  // dawn: Peach horizon emerges
+  [0.18, '#313244', '#585b70', '#f2cdcd', 0.22],  // sunrise: Flamingo warmth
+  [0.30, '#585b70', '#89b4fa', '#cdd6f4', 0.04],  // morning: Blue sky builds
+  [0.50, '#74c7ec', '#89dceb', '#b4befe', 0.00],  // midday: Sapphire/Sky/Lavender — arc peak
+  [0.70, '#585b70', '#89b4fa', '#cdd6f4', 0.04],  // afternoon: mirror morning
+  [0.82, '#313244', '#585b70', '#fab387', 0.22],  // golden hour: Peach returns
+  [0.90, '#1e1e2e', '#313244', '#eba0ac', 0.65],  // sunset: Maroon horizon
+  [0.96, '#181825', '#1e1e2e', '#cba6f7', 0.88],  // dusk: Mauve twilight
+  [1.00, '#11111b', '#181825', '#313244', 1.00],  // night: darkness returns
+];
+
+function parseHex(h) {
+  return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+}
+
+function lerpHex(c1, c2, t) {
+  const a = parseHex(c1), b = parseHex(c2);
+  return `rgb(${Math.round(a[0]+(b[0]-a[0])*t)},${Math.round(a[1]+(b[1]-a[1])*t)},${Math.round(a[2]+(b[2]-a[2])*t)})`;
+}
+
+function getSkyAt(p) {
+  let lo = SKY[0], hi = SKY[SKY.length-1];
+  for (let i = 0; i < SKY.length-1; i++) {
+    if (p <= SKY[i+1][0]) { lo = SKY[i]; hi = SKY[i+1]; break; }
+  }
+  const t = lo[0]===hi[0] ? 0 : (p-lo[0])/(hi[0]-lo[0]);
+  return {
+    top:      lerpHex(lo[1], hi[1], t),
+    mid:      lerpHex(lo[2], hi[2], t),
+    horizon:  lerpHex(lo[3], hi[3], t),
+    starAlpha: lo[4]+(hi[4]-lo[4])*t,
+  };
+}
+
+function applySky(p) {
+  const s = getSkyAt(p);
+  document.getElementById('sky').style.background =
+    `linear-gradient(180deg,${s.top} 0%,${s.mid} 46%,${s.horizon} 82%,${s.horizon} 100%)`;
+  drawStars(s.starAlpha);
+}
+
+// Pure night sky shown on the setup/idle screen
+function applyIdleSky() {
+  document.getElementById('sky').style.background =
+    `linear-gradient(180deg,#11111b 0%,#181825 46%,#1e1e2e 82%,#1e1e2e 100%)`;
+  drawStars(1.0);
+}
+
+// ══════════════════════════════════════
+// CLOUDS  — Catppuccin tinted
+// ══════════════════════════════════════
+const CLOUD_DEFS = [
+  {x: 0.06, y: 0.21, s: 1.10, spd: 0.000017, op: 0.48},
+  {x: 0.30, y: 0.31, s: 0.82, spd: 0.000013, op: 0.40},
+  {x: 0.55, y: 0.17, s: 1.28, spd: 0.000021, op: 0.44},
+  {x: 0.74, y: 0.38, s: 0.92, spd: 0.000015, op: 0.42},
+  {x: 0.92, y: 0.24, s: 1.02, spd: 0.000018, op: 0.46},
+  {x:-0.10, y: 0.44, s: 0.73, spd: 0.000011, op: 0.34},
+];
+
+function cloudSVG(op) {
+  // Clouds tinted with Catppuccin Text (#cdd6f4) — soft blue-white
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="210" height="96" viewBox="0 0 210 96" style="overflow:visible">
+    <ellipse cx="105" cy="72" rx="94"  ry="22" fill="rgba(205,214,244,${(op*0.65).toFixed(3)})"/>
+    <ellipse cx="78"  cy="56" rx="58"  ry="32" fill="rgba(205,214,244,${(op*0.55).toFixed(3)})"/>
+    <ellipse cx="120" cy="50" rx="65"  ry="38" fill="rgba(205,214,244,${(op*0.50).toFixed(3)})"/>
+    <ellipse cx="94"  cy="46" rx="50"  ry="43" fill="rgba(205,214,244,${(op*0.55).toFixed(3)})"/>
+  </svg>`;
+}
+
+const cloudEls = CLOUD_DEFS.map(d => {
+  const el = document.createElement('div');
+  el.style.cssText = `position:fixed;pointer-events:none;transform:scale(${d.s});transform-origin:0 0`;
+  el.innerHTML = cloudSVG(d.op);
+  document.getElementById('clouds').appendChild(el);
+  return el;
+});
+
+let prevCloudTs = 0;
+function animateClouds(ts) {
+  const dt = prevCloudTs ? ts - prevCloudTs : 0;
+  prevCloudTs = ts;
+  CLOUD_DEFS.forEach((d, i) => {
+    d.x += d.spd * dt;
+    if (d.x > 1.18) d.x = -0.22;
+    cloudEls[i].style.left = `${d.x * 100}vw`;
+    cloudEls[i].style.top  = `${d.y * 100}vh`;
+  });
+}
+
+// ══════════════════════════════════════
+// ARC GEOMETRY & PLANE POSITIONING
+// ══════════════════════════════════════
+function arcGeom() {
+  const W = window.innerWidth, H = window.innerHeight;
+  const x0 = W * 0.07,  y0 = H * 0.76;
+  const x2 = W * 0.93,  y2 = H * 0.76;
+  const xm = W * 0.50,  ym = H * 0.14;
+  const cy = (ym - 0.25*(y0+y2)) / 0.5;
+  const cx = (xm - 0.25*(x0+x2)) / 0.5;
+  return { x0, y0, cx, cy, x2, y2 };
+}
+
+function bez(t, p0, p1, p2) {
+  const m = 1-t;
+  return m*m*p0 + 2*m*t*p1 + t*t*p2;
+}
+function bezD(t, p0, p1, p2) {
+  return 2*(1-t)*(p1-p0) + 2*t*(p2-p1);
+}
+
+function planeAt(p) {
+  const g = arcGeom();
+  const x = bez(p, g.x0, g.cx, g.x2);
+  const y = bez(p, g.y0, g.cy, g.y2);
+  const dx = bezD(p, g.x0, g.cx, g.x2);
+  const dy = bezD(p, g.y0, g.cy, g.y2);
+  const rawDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+  // Soft-clamp via tanh: compresses angles beyond ~29° smoothly rather than hard-cutting.
+  // Raw bezier tangent is ~58° at takeoff/landing; this brings it down to a realistic ~29°
+  // while barely touching the gentle mid-arc angles (tanh is nearly linear near 0).
+  const maxTilt = 30;
+  return { x, y, angle: maxTilt * Math.tanh(rawDeg / maxTilt) };
+}
+
+function updateArcSVG(p) {
+  const g = arcGeom();
+  const full = `M ${g.x0} ${g.y0} Q ${g.cx} ${g.cy} ${g.x2} ${g.y2}`;
+  document.getElementById('arc-dash').setAttribute('d', full);
+
+  if (p > 0.002) {
+    const t = p;
+    const tx1 = g.x0 + t*(g.cx-g.x0), ty1 = g.y0 + t*(g.cy-g.y0);
+    const tx2 = bez(t, g.x0, g.cx, g.x2), ty2 = bez(t, g.y0, g.cy, g.y2);
+    document.getElementById('arc-trail').setAttribute('d',
+      `M ${g.x0} ${g.y0} Q ${tx1} ${ty1} ${tx2} ${ty2}`);
+  } else {
+    document.getElementById('arc-trail').setAttribute('d', '');
+  }
+}
+
+function positionPlane(p) {
+  const { x, y, angle } = planeAt(p);
+  const W = window.innerWidth;
+  const pw = Math.max(80, W * 0.088);
+  const ph = pw * 0.455;
+  const svg = document.getElementById('plane-svg');
+  svg.setAttribute('width',  pw);
+  svg.setAttribute('height', ph);
+  const wrap = document.getElementById('plane-wrap');
+  wrap.style.left      = `${x - pw/2}px`;
+  wrap.style.top       = `${y - ph/2}px`;
+  wrap.style.transform = `rotate(${angle}deg)`;
+}
+
+// ══════════════════════════════════════
+// CLOCK UTILITIES
+// ══════════════════════════════════════
+function pad2(n) { return String(n).padStart(2,'0'); }
+
+function fmtDuration(s) {
+  if (s < 0) s = 0;
+  const h = Math.floor(s/3600);
+  const m = Math.floor((s%3600)/60);
+  const sec = s%60;
+  return h > 0 ? `${h}:${pad2(m)}:${pad2(sec)}` : `${m}:${pad2(sec)}`;
+}
+
+function fmtClock(d) {
+  let h = d.getHours(), m = d.getMinutes();
+  const ap = h >= 12 ? 'pm' : 'am';
+  h = h%12 || 12;
+  return `${h}:${pad2(m)} ${ap}`;
+}
+
+// ══════════════════════════════════════
+// TIMER STATE
+// ══════════════════════════════════════
+let totalSecs = 0, startMs = 0;
+let running = false;
+let tickId = null, rafId = null;
+
+function elapsed()   { return (Date.now() - startMs) / 1000; }
+function remaining() { return Math.max(0, totalSecs - elapsed()); }
+function progress()  { return Math.min(1, elapsed() / totalSecs); }
+
+function loop(ts) {
+  animateClouds(ts);
+  if (running) {
+    const p = progress();
+    updateArcSVG(p);
+    positionPlane(p);
+    applySky(p);
+  } else {
+    applyIdleSky(); // pure night while on setup screen
+  }
+  rafId = requestAnimationFrame(loop);
+}
+
+function tick() {
+  if (!running) return;
+  const rem = remaining();
+  document.getElementById('remaining').textContent = fmtDuration(Math.ceil(rem));
+  document.getElementById('progress-fill').style.width = `${progress()*100}%`;
+  document.getElementById('top-right').textContent = fmtClock(new Date());
+  if (rem <= 0) finish();
+}
+
+function finish() {
+  running = false;
+  clearInterval(tickId);
+  updateArcSVG(1);
+  positionPlane(1);
+  applySky(1);
+  document.getElementById('remaining').textContent = '0:00';
+  document.getElementById('progress-fill').style.width = '100%';
+  document.getElementById('landed-overlay').style.display = 'flex';
+}
+
+// ══════════════════════════════════════
+// START / RESET
+// ══════════════════════════════════════
+function startTimer() {
+  const h = parseInt(document.getElementById('inp-h').value) || 0;
+  const m = parseInt(document.getElementById('inp-m').value) || 0;
+  const s = parseInt(document.getElementById('inp-s').value) || 0;
+  totalSecs = h*3600 + m*60 + s;
+  if (totalSecs <= 0) { document.getElementById('inp-m').focus(); return; }
+
+  startMs = Date.now();
+  running = true;
+
+  const endDate = new Date(startMs + totalSecs*1000);
+  document.getElementById('top-left').textContent   = `Landing · ${fmtClock(endDate)}`;
+  document.getElementById('top-right').textContent  = fmtClock(new Date());
+  document.getElementById('ends-label').textContent = `ends at ${fmtClock(endDate)}`;
+  document.getElementById('remaining').textContent  = fmtDuration(totalSecs);
+
+  document.getElementById('setup').style.display          = 'none';
+  document.getElementById('hud').style.display            = 'block';
+  document.getElementById('landed-overlay').style.display = 'none';
+
+  updateArcSVG(0);
+  positionPlane(0);
+  applySky(0);
+
+  tickId = setInterval(tick, 500);
+}
+
+function resetTimer() {
+  running = false;
+  clearInterval(tickId);
+
+  document.getElementById('setup').style.display          = 'flex';
+  document.getElementById('hud').style.display            = 'none';
+  document.getElementById('landed-overlay').style.display = 'none';
+
+  applyIdleSky();
+}
+
+// ══════════════════════════════════════
+// EVENTS
+// ══════════════════════════════════════
+document.getElementById('begin-btn').addEventListener('click', startTimer);
+document.getElementById('fin-reset-btn').addEventListener('click', resetTimer);
+
+// Escape resets mid-flight; Enter starts from setup screen
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && running) resetTimer();
+  if (e.key === 'Escape' && !running && document.getElementById('landed-overlay').style.display === 'flex') resetTimer();
+});
+
+document.querySelectorAll('.pr-btn').forEach(btn =>
+  btn.addEventListener('click', () => {
+    document.getElementById('inp-h').value = btn.dataset.h;
+    document.getElementById('inp-m').value = btn.dataset.m;
+    document.getElementById('inp-s').value = btn.dataset.s;
+  })
+);
+
+document.querySelectorAll('.inp-grp input').forEach(inp =>
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') startTimer(); })
+);
+
+window.addEventListener('resize', () => {
+  initStars();
+  if (running) {
+    const p = progress();
+    updateArcSVG(p);
+    positionPlane(p);
+  } else {
+    updateArcSVG(0);
+    positionPlane(0);
+  }
+});
+
+// ══════════════════════════════════════
+// INIT
+// ══════════════════════════════════════
+initStars();
+applyIdleSky();
+updateArcSVG(0);
+positionPlane(0);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
