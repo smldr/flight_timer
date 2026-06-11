@@ -49,8 +49,8 @@
 
     /* ── Plane ── */
     #plane-wrap {
-      position: fixed; pointer-events: none; z-index: 10;
-      transform-origin: 50% 50%;
+      position: fixed; left: 0; top: 0; pointer-events: none; z-index: 10;
+      transform-origin: 0 0;
       filter: drop-shadow(0 4px 18px rgba(180,190,254,0.40)); /* Lavender glow */
     }
 
@@ -516,14 +516,14 @@ function drawStars(alpha) {
   stars.forEach(s => {
     s.phase += s.spd;
     const tw = 0.72 + 0.28 * Math.sin(s.phase);
-    // Catppuccin stars: mostly Text (#cdd6f4) with occasional Lavender (#b4befe) tint
-    const lavender = s.base > 0.75;
-    const [r,g,b] = lavender ? [180,190,254] : [205,214,244];
+    // globalAlpha + plain hex avoids a new rgba() string allocation per star per frame
+    sCtx.globalAlpha = s.base * tw * alpha;
+    sCtx.fillStyle = s.base > 0.75 ? '#b4befe' : '#cdd6f4';
     sCtx.beginPath();
     sCtx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-    sCtx.fillStyle = `rgba(${r},${g},${b},${(s.base * tw * alpha).toFixed(3)})`;
     sCtx.fill();
   });
+  sCtx.globalAlpha = 1;
 }
 
 // ══════════════════════════════════════
@@ -570,10 +570,15 @@ function getSkyAt(p) {
   };
 }
 
+let lastSkyStr = '';
 function applySky(p) {
   const s = getSkyAt(p);
-  document.getElementById('sky').style.background =
-    `linear-gradient(180deg,${s.top} 0%,${s.mid} 46%,${s.horizon} 82%,${s.horizon} 100%)`;
+  const skyStr = `linear-gradient(180deg,${s.top} 0%,${s.mid} 46%,${s.horizon} 82%,${s.horizon} 100%)`;
+  // lerpHex rounds to integers, so this string only changes when a colour channel ticks over (~a few times/sec)
+  if (skyStr !== lastSkyStr) {
+    document.getElementById('sky').style.background = skyStr;
+    lastSkyStr = skyStr;
+  }
   drawStars(s.starAlpha);
 }
 
@@ -608,7 +613,8 @@ function cloudSVG(op) {
 
 const cloudEls = CLOUD_DEFS.map(d => {
   const el = document.createElement('div');
-  el.style.cssText = `position:fixed;pointer-events:none;transform:scale(${d.s});transform-origin:0 0`;
+  // left:0;top:0 fixed at origin; position driven entirely by transform (px, not vw/vh)
+  el.style.cssText = `position:fixed;left:0;top:0;pointer-events:none;transform-origin:0 0`;
   el.innerHTML = cloudSVG(d.op);
   document.getElementById('clouds').appendChild(el);
   return el;
@@ -621,19 +627,21 @@ function animateClouds(ts) {
   CLOUD_DEFS.forEach((d, i) => {
     d.x += d.spd * dt;
     if (d.x > 1.18) d.x = -0.22;
-    cloudEls[i].style.left = `${d.x * 100}vw`;
-    cloudEls[i].style.top  = `${d.y * 100}vh`;
+    // px values — compositor can resolve these without triggering layout
+    cloudEls[i].style.transform = `translate(${d.x * vpW}px,${d.y * vpH}px) scale(${d.s})`;
   });
 }
 
 // ══════════════════════════════════════
 // ARC GEOMETRY & PLANE POSITIONING
 // ══════════════════════════════════════
+// Cached to avoid reading layout properties inside the RAF loop (forces reflow).
+let vpW = window.innerWidth, vpH = window.innerHeight;
+
 function arcGeom() {
-  const W = window.innerWidth, H = window.innerHeight;
-  const x0 = W * 0.07,  y0 = H * 0.76;
-  const x2 = W * 0.93,  y2 = H * 0.76;
-  const xm = W * 0.50,  ym = H * 0.14;
+  const x0 = vpW * 0.07,  y0 = vpH * 0.76;
+  const x2 = vpW * 0.93,  y2 = vpH * 0.76;
+  const xm = vpW * 0.50,  ym = vpH * 0.14;
   const cy = (ym - 0.25*(y0+y2)) / 0.5;
   const cx = (xm - 0.25*(x0+x2)) / 0.5;
   return { x0, y0, cx, cy, x2, y2 };
@@ -679,16 +687,16 @@ function updateArcSVG(p) {
 
 function positionPlane(p) {
   const { x, y, angle } = planeAt(p);
-  const W = window.innerWidth;
-  const pw = Math.max(80, W * 0.088);
+  const pw = Math.max(80, vpW * 0.088);
   const ph = pw * 0.455;
   const svg = document.getElementById('plane-svg');
   svg.setAttribute('width',  pw);
   svg.setAttribute('height', ph);
-  const wrap = document.getElementById('plane-wrap');
-  wrap.style.left      = `${x - pw/2}px`;
-  wrap.style.top       = `${y - ph/2}px`;
-  wrap.style.transform = `rotate(${angle}deg)`;
+  // Single transform (translate + rotate) — no layout-triggering left/top writes
+  const tx = x - pw / 2;
+  const ty = y - ph / 2;
+  document.getElementById('plane-wrap').style.transform =
+    `translate(${tx}px,${ty}px) rotate(${angle}deg)`;
 }
 
 // ══════════════════════════════════════
@@ -839,6 +847,8 @@ document.querySelectorAll('.inp-grp input').forEach(inp =>
 );
 
 window.addEventListener('resize', () => {
+  vpW = window.innerWidth;
+  vpH = window.innerHeight;
   initStars();
   if (running) {
     const p = progress();
