@@ -12,6 +12,21 @@
 
 ---
 
+<table>
+<tr>
+<td><img src="screenshots/dawn.png" alt="dawn — plane climbing through a peach sunrise"/></td>
+<td><img src="screenshots/midday.png" alt="midday — bright blue sky, plane at the peak"/></td>
+<td><img src="screenshots/dusk.png" alt="dusk — golden-mauve sunset, plane descending"/></td>
+</tr>
+<tr>
+<td align="center"><sub>dawn</sub></td>
+<td align="center"><sub>midday</sub></td>
+<td align="center"><sub>dusk</sub></td>
+</tr>
+</table>
+
+---
+
 A plane takes off, arcs through a full day of sky, and lands exactly when time runs out. Set a duration, hit **Begin Flight**, and let your students watch the clock — without watching the clock.
 
 <br>
